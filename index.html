@@ -33,6 +33,13 @@
   }
   #toast.show { transform:translate(-50%,-50%) scale(1); }
   #toast.rare { color:#b06bd4; box-shadow:0 0 30px rgba(255,215,80,.9), 0 6px 24px rgba(180,120,255,.5); }
+  #bgmBtn {
+    position:absolute; top:calc(env(safe-area-inset-top) + 6px); right:10px;
+    width:44px; height:44px; border-radius:50%; border:3px solid #fff;
+    background:rgba(255,255,255,.8); font-size:20px; z-index:10;
+    box-shadow:0 2px 8px rgba(255,120,190,.3); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
   #toolbar {
     position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); left:0; right:0;
     display:flex; gap:8px; padding:10px 12px 6px; overflow-x:auto; z-index:10;
@@ -63,6 +70,7 @@
 <div id="title">🦄 ゆめかわブロックワールド 🍰</div>
 <div id="hint">🥚たまごから どうぶつが うまれるよ！</div>
 <div id="toast"></div>
+<button id="bgmBtn">🎵</button>
 <div id="toolbar"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -91,7 +99,7 @@ addEventListener('resize', () => {
 });
 
 /* ---------- カメラ（オービット） ---------- */
-let camTheta = Math.PI * 0.25, camPhi = 1.1, camRadius = 21;
+let camTheta = 0, camPhi = 1.1, camRadius = 23;
 const camTarget = new THREE.Vector3(0, 1.5, 0);
 function updateCamera(){
   camPhi = Math.max(0.2, Math.min(1.45, camPhi));
@@ -447,66 +455,145 @@ function scheduleSave(){
       Math.round(an.group.position.x*10)/10,
       Math.round(an.group.position.z*10)/10
     ]);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ b, a })); } catch(e){}
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:3, b, a })); } catch(e){}
   }, 400);
 }
 function loadWorld(){
   let data = null;
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e){}
   if (data && Array.isArray(data.b)){
-    data.b.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
+    if (data.v === 3){
+      data.b.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
+    } else {
+      buildMap(); // あたらしいマップに おひっこし（どうぶつは連れていく）
+    }
     (data.a||[]).forEach(([s,c,x,z]) => spawnAnimal(s,c,x,z,true));
-    if (!animals.length) spawnAnimal(2, 0, 6, 8, true); // ユニコーンはかならず1ぴき
+    if (!animals.length) defaultAnimals();
+    scheduleSave();
     return true;
   }
   // ふるいセーブ（v1）からの引っこし
   let old = null;
   try { old = JSON.parse(localStorage.getItem(OLD_KEY)); } catch(e){}
   if (Array.isArray(old) && old.length){
-    old.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
-    spawnAnimal(2, 0, 6, 8, true);   // ユニコーン
-    spawnAnimal(0, 1, -6, 4, true);  // ねこ（おまけ）
+    buildMap();
+    defaultAnimals();
     scheduleSave();
     return true;
   }
   return false;
 }
 
-/* ---------- さいしょのおかしのおうち ---------- */
-function buildStarter(){
-  // ケーキのおうち（かべ）
-  for(let x=-2;x<=2;x++) for(let z=-2;z<=2;z++) for(let y=0;y<=2;y++){
-    const edge = (Math.abs(x)===2 || Math.abs(z)===2);
-    if (!edge) continue;
-    if (z===2 && x===0 && y<2) continue;           // ドア
-    if (y===1 && (x===2||x===-2) && z===0) { addBlock(x,y,z,3,true); continue; } // まど
-    addBlock(x,y,z,0,true);
-  }
-  // キャンディやね
-  for(let x=-2;x<=2;x++) for(let z=-2;z<=2;z++) addBlock(x,3,z,2,true);
-  for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(x,4,z,2,true);
-  addBlock(0,5,0,6,true); // てっぺんのほし
-  // にじのみち
-  for(let z=3;z<=8;z++) addBlock(0,0,z,5,true);
-  // キャンディツリー
-  [[7,4],[-7,6],[-5,-7]].forEach(([tx,tz],i)=>{
-    addBlock(tx,0,tz,1,true); addBlock(tx,1,tz,1,true);
-    for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(tx+x,2,tz+z, i%2?4:2, true);
-    addBlock(tx,3,tz, 6, true);
+/* ---------- ゆめかわマップ ---------- */
+function candyTree(tx, tz, capType){
+  addBlock(tx,0,tz,1,true); addBlock(tx,1,tz,1,true);
+  for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(tx+x,2,tz+z, capType, true);
+  addBlock(tx,3,tz, 6, true);
+}
+function iceCreamScoop(cx, cz, base){
+  for(let x=-2;x<=2;x++) for(let z=-2;z<=2;z++) addBlock(cx+x,0,cz+z, base, true);
+  for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(cx+x,1,cz+z, base, true);
+  for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++)
+    if (Math.abs(x)+Math.abs(z) < 2) addBlock(cx+x,2,cz+z, 0, true);
+  addBlock(cx,3,cz,4,true); // さくらんぼハート
+}
+function buildMap(){
+  /* ===== おかしのおしろ（きた） ===== */
+  // 4本のとう（2x2 たかさ5、てっぺんはハート＆ほし）
+  [[-6,-16],[5,-16],[-6,-9],[5,-9]].forEach(([tx,tz])=>{
+    for(let dx=0;dx<2;dx++) for(let dz=0;dz<2;dz++)
+      for(let y=0;y<5;y++) addBlock(tx+dx, y, tz+dz, y===4 ? 4 : 0, true);
+    addBlock(tx,5,tz,6,true); addBlock(tx+1,5,tz+1,6,true);
   });
-  // ちらばったハート
-  [[4,-4],[-3,5],[9,1]].forEach(([x,z])=> addBlock(x,0,z,4,true));
-  spawnAnimal(2, 0, 6, 8, true);   // ユニコーン
-  spawnAnimal(0, 1, -6, 4, true);  // ねこ
+  // まえのかべ（もんつき）
+  for(let x=-4;x<=3;x++){
+    for(let y=0;y<3;y++){
+      if ((x===-1||x===0) && y<2) continue; // おしろのもん
+      addBlock(x,y,-9, 0, true);
+    }
+    if (x%2===0) addBlock(x,3,-9, 4, true); // ハートのかざり
+  }
+  // うしろのかべ
+  for(let x=-4;x<=3;x++){
+    for(let y=0;y<3;y++) addBlock(x,y,-16, 0, true);
+    if (x%2===0) addBlock(x,3,-16, 4, true);
+  }
+  // よこのかべ
+  for(let z=-14;z<=-11;z++) for(let y=0;y<3;y++){
+    addBlock(-6,y,z,0,true); addBlock(6,y,z,0,true);
+  }
+  // ちゅうおうのキープ（キャンディやね＋ほし）
+  for(let x=-1;x<=1;x++) for(let z=-14;z<=-12;z++){
+    for(let y=0;y<5;y++) addBlock(x,y,z, 0, true);
+    addBlock(x,5,z, 2, true);
+  }
+  addBlock(0,6,-13,6,true);
+  // おしろのなかのにわ（レインボーとハート）
+  [[-3,-11],[2,-11],[-3,-13],[2,-13]].forEach(([x,z])=> addBlock(x,0,z,4,true));
+
+  /* ===== にじのみち（おしろから みなみへ） ===== */
+  for(let z=-8; z<=10; z++){ addBlock(-1,0,z,5,true); addBlock(0,0,z,5,true); }
+
+  /* ===== カラフルこうえん（ひがし） ===== */
+  // にじのアーチ
+  [[9,0],[9,1],[9,2],[10,3],[11,4],[12,4],[13,4],[14,3],[15,2],[15,1],[15,0]]
+    .forEach(([x,y])=> addBlock(x,y,4,5,true));
+  // おはなのはなだん（まんなかほし＋ハートのはなびら）
+  [[10,8],[14,8],[12,11]].forEach(([cx,cz])=>{
+    addBlock(cx,0,cz,6,true);
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dz])=> addBlock(cx+dx,0,cz+dz,4,true));
+  });
+  // きのこハウス（チョコのあし＋キャンディのかさ）
+  [[9,-3],[13,0]].forEach(([mx,mz])=>{
+    addBlock(mx,0,mz,1,true);
+    addBlock(mx,1,mz,2,true);
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dz])=> addBlock(mx+dx,1,mz+dz,4,true));
+  });
+  // すべりだい＆ソーダプール
+  addBlock(17,0,0,2,true); addBlock(17,1,0,2,true); addBlock(17,2,0,2,true);
+  addBlock(17,1,1,5,true); addBlock(17,0,2,5,true);
+  [[17,3],[18,3],[17,4],[18,4]].forEach(([x,z])=> addBlock(x,0,z,3,true));
+
+  /* ===== アイスクリームマウンテン（にし） ===== */
+  iceCreamScoop(-15,-4, 3);  // ソーダあじ
+  iceCreamScoop(-11, 2, 2);  // キャンディあじ
+
+  /* ===== キャンディのもり（なんせい） ===== */
+  candyTree(-13, 9, 2); candyTree(-9, 12, 4);
+  candyTree(-15, 14, 2); candyTree(-10, 16, 4);
+  addBlock(-12,0,13,7,true); // もりにかくれた うんち（みつけてね）
+
+  /* ===== ソーダのいけ（なんとう） ===== */
+  [[8,13],[9,13],[10,13],[7,14],[8,14],[9,14],[10,14],[11,14],[8,15],[9,15],[10,15]]
+    .forEach(([x,z])=> addBlock(x,0,z,3,true));
+  [[4,10],[5,11],[6,12]].forEach(([x,z])=> addBlock(x,0,z,5,true)); // とびいし
+
+  /* ===== ちらばったおかし ===== */
+  [[3,3],[-3,4],[2,-3],[-4,-2],[6,7]].forEach(([x,z])=> addBlock(x,0,z,4,true));
+  [[5,-5],[-6,5]].forEach(([x,z])=> addBlock(x,0,z,6,true));
+}
+function defaultAnimals(){
+  spawnAnimal(2, 0, 3, 6, true);   // ユニコーン
+  spawnAnimal(0, 1, -5, 8, true);  // ねこ
+  spawnAnimal(1, 0, 7, -2, true);  // いぬ
+}
+function buildStarter(){
+  buildMap();
+  defaultAnimals();
   scheduleSave();
 }
 
 /* ---------- おと ---------- */
-let audioCtx = null;
+let audioCtx = null, bgmGain = null;
 function ensureAudio(){
   if (!audioCtx){
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) audioCtx = new AC();
+    if (AC){
+      audioCtx = new AC();
+      bgmGain = audioCtx.createGain();
+      bgmGain.gain.value = 0.5;
+      bgmGain.connect(audioCtx.destination);
+    }
   }
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }
@@ -539,6 +626,47 @@ function hatchFanfare(rare){
     [659,784,1047].forEach((f,i)=> note(f,0.18,0.2,'sine',i*0.09));
   }
 }
+
+/* ---------- BGM（オルゴールふう） ---------- */
+const midi = n => 440 * Math.pow(2, (n-69)/12);
+const BGM_STEP = 0.27;   // 8ぶおんぷ1つのながさ（びょう）≒111BPM
+const BGM_LEN = 64;
+const BGM_MELODY = [     // [ステップ, ノート]  C-G-Am-F しんこう
+  [0,76],[2,79],[4,84],[6,79],
+  [8,74],[10,79],[12,83],[14,79],
+  [16,84],[18,81],[20,76],[22,81],
+  [24,81],[26,77],[28,79],[30,81],
+  [32,84],[34,86],[36,88],[38,84],
+  [40,83],[42,79],[44,86],[46,83],
+  [48,81],[50,84],[52,88],[54,84],
+  [56,81],[58,79],[60,77],[62,79],
+];
+const BGM_BASS = [
+  [0,48],[4,55],[8,43],[12,50],[16,45],[20,52],[24,53],[28,48],
+  [32,48],[36,55],[40,43],[44,50],[48,45],[52,52],[56,53],[60,55],
+];
+let bgmOn = true, bgmStep = 0, bgmNextT = 0;
+function bgmNote(f, t0, dur, vol){
+  [[1, vol],[2, vol*0.28],[3, vol*0.09]].forEach(([mult, v])=>{
+    const o = audioCtx.createOscillator();
+    const gn = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.value = f*mult;
+    gn.gain.setValueAtTime(v, t0);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(gn); gn.connect(bgmGain);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  });
+}
+setInterval(()=>{
+  if (!audioCtx || !bgmOn || audioCtx.state !== 'running') return;
+  if (bgmNextT < audioCtx.currentTime) bgmNextT = audioCtx.currentTime + 0.1;
+  while (bgmNextT < audioCtx.currentTime + 0.7){
+    const s = bgmStep % BGM_LEN;
+    BGM_MELODY.forEach(([st,n])=>{ if (st === s) bgmNote(midi(n), bgmNextT, 1.1, 0.10); });
+    BGM_BASS.forEach(([st,n])=>{ if (st === s) bgmNote(midi(n), bgmNextT, 0.9, 0.06); });
+    bgmStep++; bgmNextT += BGM_STEP;
+  }
+}, 200);
 
 /* ---------- キラキラ ---------- */
 const sparkTexs = ['#fff5b0','#ffc2dd','#c5ecff'].map(col => makeTex(g => {
@@ -904,6 +1032,15 @@ function animate(){
   renderer.render(scene, camera);
 }
 animate();
+
+/* BGMボタン */
+const bgmBtn = document.getElementById('bgmBtn');
+bgmBtn.addEventListener('click', ()=>{
+  ensureAudio();
+  bgmOn = !bgmOn;
+  bgmBtn.textContent = bgmOn ? '🎵' : '🔇';
+  if (bgmGain) bgmGain.gain.value = bgmOn ? 0.5 : 0;
+});
 
 /* ヒントをしばらくしたら消す */
 setTimeout(()=>{ document.getElementById('hint').style.opacity = 0; }, 8000);
