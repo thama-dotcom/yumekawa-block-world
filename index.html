@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>🦄 ゆめかわブロックワールド 🍰</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; position:fixed;
+    background:linear-gradient(#ffd3ec 0%, #ffe7f3 40%, #cdf2ff 100%);
+    font-family:'Hiragino Maru Gothic ProN','BIZ UDPGothic','Yu Gothic',sans-serif;
+    touch-action:none; user-select:none; -webkit-user-select:none; }
+  #game { position:absolute; inset:0; }
+  #title {
+    position:absolute; top:calc(env(safe-area-inset-top) + 8px); left:50%; transform:translateX(-50%);
+    font-size:17px; font-weight:bold; color:#ff7bbd;
+    background:rgba(255,255,255,.75); padding:6px 18px; border-radius:999px;
+    box-shadow:0 2px 8px rgba(255,120,190,.3); white-space:nowrap; pointer-events:none; z-index:5;
+  }
+  #hint {
+    position:absolute; top:calc(env(safe-area-inset-top) + 50px); left:50%; transform:translateX(-50%);
+    font-size:14px; color:#b06bd4; background:rgba(255,255,255,.7);
+    padding:4px 14px; border-radius:999px; pointer-events:none; z-index:5;
+    transition:opacity 1s; white-space:nowrap;
+  }
+  #toolbar {
+    position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); left:0; right:0;
+    display:flex; gap:8px; padding:10px 12px 6px; overflow-x:auto; z-index:10;
+    justify-content:flex-start; scrollbar-width:none;
+  }
+  #toolbar::-webkit-scrollbar { display:none; }
+  .btn {
+    flex:0 0 auto; width:60px; height:60px; border-radius:20px; border:3px solid #fff;
+    font-size:30px; line-height:1; background:rgba(255,255,255,.85);
+    box-shadow:0 3px 10px rgba(255,120,190,.35);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .15s; cursor:pointer;
+  }
+  .btn.sel {
+    transform:scale(1.18) translateY(-6px);
+    border-color:#ff7bbd;
+    background:#fff0f8;
+    box-shadow:0 6px 16px rgba(255,120,190,.55);
+  }
+  .btn.small { width:48px; height:48px; font-size:22px; border-radius:16px; align-self:center; }
+  .spacer { flex:1 0 8px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="title">🦄 ゆめかわブロックワールド 🍰</div>
+<div id="hint">ゆびで タップして ブロックを おいてね！</div>
+<div id="toolbar"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+'use strict';
+
+/* ---------- 基本セットアップ ---------- */
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xffdff0, 55, 130);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 300);
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.getElementById('game').appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.2);
+sun.position.set(20, 40, 15);
+scene.add(sun);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- カメラ（オービット） ---------- */
+let camTheta = Math.PI * 0.25, camPhi = 1.1, camRadius = 21;
+const camTarget = new THREE.Vector3(0, 1.5, 0);
+function updateCamera(){
+  camPhi = Math.max(0.2, Math.min(1.45, camPhi));
+  camRadius = Math.max(6, Math.min(45, camRadius));
+  camera.position.set(
+    camTarget.x + camRadius * Math.sin(camPhi) * Math.sin(camTheta),
+    camTarget.y + camRadius * Math.cos(camPhi),
+    camTarget.z + camRadius * Math.sin(camPhi) * Math.cos(camTheta)
+  );
+  camera.lookAt(camTarget);
+}
+updateCamera();
+
+/* ---------- テクスチャ（キャンバスで手描き） ---------- */
+function makeTex(draw){
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'); draw(g);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function drawSprinkles(g, n){
+  const cols = ['#ff6fa5','#7ed9ff','#ffd94d','#b78bff','#7dffb0','#ffffff'];
+  for(let i=0;i<n;i++){
+    g.save();
+    g.translate(Math.random()*128, Math.random()*128);
+    g.rotate(Math.random()*Math.PI);
+    g.fillStyle = cols[(Math.random()*cols.length)|0];
+    g.fillRect(-6,-2,12,4);
+    g.restore();
+  }
+}
+function drawHeart(g, x, y, s, color){
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(x, y + s*0.9);
+  g.bezierCurveTo(x - s, y + s*0.25, x - s*0.55, y - s*0.55, x, y - s*0.1);
+  g.bezierCurveTo(x + s*0.55, y - s*0.55, x + s, y + s*0.25, x, y + s*0.9);
+  g.fill();
+}
+function drawStar(g, cx, cy, r, color){
+  g.fillStyle = color;
+  g.beginPath();
+  for(let i=0;i<10;i++){
+    const rr = i%2===0 ? r : r*0.45;
+    const a = -Math.PI/2 + i*Math.PI/5;
+    g[i===0?'moveTo':'lineTo'](cx + rr*Math.cos(a), cy + rr*Math.sin(a));
+  }
+  g.closePath(); g.fill();
+}
+
+const BLOCKS = [
+  { name:'いちごケーキ', emoji:'🍰', tex: makeTex(g => {
+      g.fillStyle = '#fff6ef'; g.fillRect(0,0,128,128);
+      g.fillStyle = '#ffb7d5'; g.fillRect(0,42,128,22); g.fillRect(0,96,128,22);
+      g.fillStyle = '#ffe3ef'; g.fillRect(0,0,128,20);
+      drawSprinkles(g, 10);
+    })},
+  { name:'チョコ', emoji:'🍫', tex: makeTex(g => {
+      g.fillStyle = '#9c6a44'; g.fillRect(0,0,128,128);
+      g.strokeStyle = '#7a4e2f'; g.lineWidth = 6;
+      g.strokeRect(8,8,50,50); g.strokeRect(70,8,50,50);
+      g.strokeRect(8,70,50,50); g.strokeRect(70,70,50,50);
+    })},
+  { name:'キャンディ', emoji:'🍭', tex: makeTex(g => {
+      g.fillStyle = '#ffffff'; g.fillRect(0,0,128,128);
+      g.lineWidth = 16;
+      const cols = ['#ff8fc0','#9fe8ff','#ff8fc0','#c9a5ff'];
+      for(let i=-2;i<8;i++){
+        g.strokeStyle = cols[(i+4)%cols.length];
+        g.beginPath(); g.moveTo(i*32-20, 148); g.lineTo(i*32+60, -20); g.stroke();
+      }
+    })},
+  { name:'ソーダ', emoji:'🫧', tex: makeTex(g => {
+      g.fillStyle = '#aee9ff'; g.fillRect(0,0,128,128);
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      for(let i=0;i<12;i++){
+        g.beginPath();
+        g.arc(Math.random()*128, Math.random()*128, 3+Math.random()*7, 0, 7);
+        g.fill();
+      }
+    })},
+  { name:'ハート', emoji:'💜', tex: makeTex(g => {
+      g.fillStyle = '#e9d8ff'; g.fillRect(0,0,128,128);
+      drawHeart(g, 64, 60, 42, '#ff86bd');
+      drawHeart(g, 24, 24, 12, '#ffffff');
+      drawHeart(g, 104, 100, 12, '#ffffff');
+    })},
+  { name:'レインボー', emoji:'🌈', tex: makeTex(g => {
+      const cols = ['#ffb3ba','#ffdfba','#fff6ad','#baffc9','#bae1ff','#e3baff'];
+      cols.forEach((c,i)=>{ g.fillStyle=c; g.fillRect(0, i*128/6, 128, 128/6+1); });
+    })},
+  { name:'おほしさま', emoji:'⭐', tex: makeTex(g => {
+      g.fillStyle = '#fff1a8'; g.fillRect(0,0,128,128);
+      drawStar(g, 64, 68, 40, '#ffffff');
+      drawStar(g, 20, 20, 10, '#ffd94d');
+      drawStar(g, 108, 108, 10, '#ffd94d');
+    })},
+];
+const blockMats = BLOCKS.map(b => new THREE.MeshLambertMaterial({ map:b.tex }));
+const blockGeo = new THREE.BoxGeometry(1,1,1);
+
+/* ---------- 地面 ---------- */
+const groundTex = makeTex(g => {
+  g.fillStyle = '#c8f5c8'; g.fillRect(0,0,128,128);
+  g.fillStyle = '#b3efd2'; g.fillRect(0,0,64,64); g.fillRect(64,64,64,64);
+  drawHeart(g, 32, 32, 7, 'rgba(255,170,210,.6)');
+});
+groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+groundTex.repeat.set(60, 60);
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.MeshLambertMaterial({ map: groundTex })
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+/* ---------- にじ（背景） ---------- */
+const rainbow = new THREE.Group();
+['#ff9db4','#ffce9d','#fff3a0','#a9f0b8','#a5dcff','#d4b5ff'].forEach((c,i)=>{
+  const arc = new THREE.Mesh(
+    new THREE.TorusGeometry(26 - i*1.6, 0.8, 8, 48, Math.PI),
+    new THREE.MeshBasicMaterial({ color:c, fog:false })
+  );
+  rainbow.add(arc);
+});
+rainbow.position.set(0, 0, -70);
+scene.add(rainbow);
+
+/* ---------- くも ---------- */
+const clouds = [];
+const cloudMat = new THREE.MeshLambertMaterial({ color:0xffffff });
+for(let i=0;i<5;i++){
+  const cl = new THREE.Group();
+  const n = 3 + (Math.random()*3|0);
+  for(let j=0;j<n;j++){
+    const s = new THREE.Mesh(new THREE.SphereGeometry(1.2+Math.random(), 12, 10), cloudMat);
+    s.position.set(j*1.6 - n*0.8, Math.random()*0.5, Math.random()*1.2);
+    cl.add(s);
+  }
+  cl.position.set(Math.random()*80-40, 14+Math.random()*8, Math.random()*80-40);
+  scene.add(cl); clouds.push(cl);
+}
+
+/* ---------- ユニコーン ---------- */
+function box(parent, w,h,d, color, x,y,z){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshLambertMaterial({ color }));
+  m.position.set(x,y,z); parent.add(m); return m;
+}
+const unicorn = new THREE.Group();
+box(unicorn, 1.5,0.9,0.8, 0xffffff, 0,1.1,0);              // からだ
+box(unicorn, 0.7,0.7,0.6, 0xffffff, 0.95,1.75,0);          // あたま
+box(unicorn, 0.25,0.28,0.15, 0xff9ecf, 1.32,1.62,0);       // はな
+[-0.25,0.25].forEach(zz=>{ [-0.45,0.45].forEach(xx=>
+  box(unicorn, 0.28,0.75,0.28, 0xfff0f7, xx, 0.45, zz)); }); // あし
+const horn = new THREE.Mesh(
+  new THREE.ConeGeometry(0.12, 0.6, 8),
+  new THREE.MeshLambertMaterial({ color:0xffd94d })
+);
+horn.position.set(0.95, 2.35, 0); unicorn.add(horn);
+const maneCols = [0xff8fc0, 0xc9a5ff, 0x9fe8ff, 0xaaffc3];
+maneCols.forEach((c,i)=> box(unicorn, 0.25,0.3,0.55, c, 0.85 - i*0.28, 2.05 - i*0.06, 0)); // たてがみ
+maneCols.forEach((c,i)=> box(unicorn, 0.22,0.5,0.22, c, -0.85, 1.35 - i*0.18, 0));         // しっぽ
+[-1,1].forEach(s=> box(unicorn, 0.08,0.14,0.08, 0x553344, 1.18, 1.85, s*0.24));            // め
+unicorn.position.set(6, 0, 8);
+scene.add(unicorn);
+const uniTarget = new THREE.Vector3(3, 0, 3);
+let uniJump = 0;
+
+/* ---------- ブロック管理 ---------- */
+const blockGroup = new THREE.Group();
+scene.add(blockGroup);
+const world = new Map(); // "x,y,z" -> { mesh, type }
+const undoStack = [];
+const popAnims = [];
+const LIMIT = 26, HMAX = 16;
+
+function key(x,y,z){ return x+','+y+','+z; }
+
+function addBlock(x,y,z,type, silent){
+  if (Math.abs(x)>LIMIT || Math.abs(z)>LIMIT || y<0 || y>HMAX) return false;
+  const k = key(x,y,z);
+  if (world.has(k)) return false;
+  const mesh = new THREE.Mesh(blockGeo, blockMats[type]);
+  mesh.position.set(x+0.5, y+0.5, z+0.5);
+  mesh.userData.key = k;
+  blockGroup.add(mesh);
+  world.set(k, { mesh, type });
+  if (!silent){
+    mesh.scale.setScalar(0.1);
+    popAnims.push({ mesh, t:0 });
+  }
+  return true;
+}
+function removeBlock(k){
+  const b = world.get(k);
+  if (!b) return null;
+  blockGroup.remove(b.mesh);
+  world.delete(k);
+  return b.type;
+}
+
+/* ---------- セーブ / ロード ---------- */
+const SAVE_KEY = 'yumekawa-world-v1';
+let saveTimer = null;
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    const data = [];
+    world.forEach((b,k)=>{
+      const [x,y,z] = k.split(',').map(Number);
+      data.push([x,y,z,b.type]);
+    });
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e){}
+  }, 400);
+}
+function loadWorld(){
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e){}
+  if (Array.isArray(data) && data.length){
+    data.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
+    return true;
+  }
+  return false;
+}
+
+/* ---------- さいしょのおかしのおうち ---------- */
+function buildStarter(){
+  // ケーキのおうち（かべ）
+  for(let x=-2;x<=2;x++) for(let z=-2;z<=2;z++) for(let y=0;y<=2;y++){
+    const edge = (Math.abs(x)===2 || Math.abs(z)===2);
+    if (!edge) continue;
+    if (z===2 && x===0 && y<2) continue;           // ドア
+    if (y===1 && (x===2||x===-2) && z===0) { addBlock(x,y,z,3,true); continue; } // まど
+    addBlock(x,y,z,0,true);
+  }
+  // キャンディやね
+  for(let x=-2;x<=2;x++) for(let z=-2;z<=2;z++) addBlock(x,3,z,2,true);
+  for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(x,4,z,2,true);
+  addBlock(0,5,0,6,true); // てっぺんのほし
+  // にじのみち
+  for(let z=3;z<=8;z++) addBlock(0,0,z,5,true);
+  // キャンディツリー
+  [[7,4],[-7,6],[-5,-7]].forEach(([tx,tz],i)=>{
+    addBlock(tx,0,tz,1,true); addBlock(tx,1,tz,1,true);
+    for(let x=-1;x<=1;x++) for(let z=-1;z<=1;z++) addBlock(tx+x,2,tz+z, i%2?4:2, true);
+    addBlock(tx,3,tz, 6, true);
+  });
+  // ちらばったハート
+  [[4,-4],[-3,5],[9,1]].forEach(([x,z])=> addBlock(x,0,z,4,true));
+  scheduleSave();
+}
+if (!loadWorld()) buildStarter();
+
+/* ---------- おと ---------- */
+let audioCtx = null;
+function ensureAudio(){
+  if (!audioCtx){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audioCtx = new AC();
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function note(freq, dur=0.18, vol=0.25, type='sine', when=0){
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + when;
+  const o = audioCtx.createOscillator();
+  const gn = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq;
+  gn.gain.setValueAtTime(vol, t0);
+  gn.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(gn); gn.connect(audioCtx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+const SCALE = [523, 587, 659, 784, 880, 1047];
+function popSound(){ note(SCALE[(Math.random()*SCALE.length)|0], 0.15, 0.2); }
+function eraseSound(){ note(220, 0.12, 0.15, 'triangle'); }
+function unicornSound(){
+  [523, 659, 784, 1047, 1319].forEach((f,i)=> note(f, 0.22, 0.2, 'sine', i*0.09));
+}
+
+/* ---------- キラキラ ---------- */
+const sparkTexs = ['#fff5b0','#ffc2dd','#c5ecff'].map(col => makeTex(g => {
+  g.clearRect(0,0,128,128);
+  drawStar(g, 64, 64, 52, col);
+}));
+const sparks = [];
+function sparkle(pos, n=8){
+  for(let i=0;i<n;i++){
+    const m = new THREE.SpriteMaterial({ map: sparkTexs[(Math.random()*3)|0], transparent:true, fog:false });
+    const s = new THREE.Sprite(m);
+    s.position.copy(pos);
+    s.scale.setScalar(0.25 + Math.random()*0.3);
+    s.userData = {
+      vel: new THREE.Vector3((Math.random()-0.5)*3, Math.random()*3+1, (Math.random()-0.5)*3),
+      life: 0.7
+    };
+    scene.add(s); sparks.push(s);
+  }
+}
+
+/* ---------- ツールバー ---------- */
+const toolbar = document.getElementById('toolbar');
+let currentTool = 0; // 0.. = ブロック, -1 = けしゴム
+const toolBtns = [];
+BLOCKS.forEach((b,i)=>{
+  const el = document.createElement('button');
+  el.className = 'btn' + (i===0?' sel':'');
+  el.textContent = b.emoji;
+  el.setAttribute('aria-label', b.name);
+  el.addEventListener('click', ()=>{ selectTool(i); ensureAudio(); note(SCALE[i%SCALE.length],0.1,0.12); });
+  toolbar.appendChild(el); toolBtns.push(el);
+});
+const eraserBtn = document.createElement('button');
+eraserBtn.className = 'btn'; eraserBtn.textContent = '🧹';
+eraserBtn.addEventListener('click', ()=>{ selectTool(-1); ensureAudio(); eraseSound(); });
+toolbar.appendChild(eraserBtn);
+
+const spacer = document.createElement('div');
+spacer.className = 'spacer';
+toolbar.appendChild(spacer);
+
+const undoBtn = document.createElement('button');
+undoBtn.className = 'btn small'; undoBtn.textContent = '↩️';
+undoBtn.addEventListener('click', ()=>{
+  ensureAudio();
+  const a = undoStack.pop();
+  if (!a) return;
+  if (a.action === 'place') removeBlock(a.k);
+  else { const [x,y,z] = a.k.split(',').map(Number); addBlock(x,y,z,a.type,true); }
+  eraseSound(); scheduleSave();
+});
+toolbar.appendChild(undoBtn);
+
+const resetBtn = document.createElement('button');
+resetBtn.className = 'btn small'; resetBtn.textContent = '🗑️';
+resetBtn.addEventListener('click', ()=>{
+  if (!confirm('ぜんぶ けして さいしょから はじめる？')) return;
+  [...world.keys()].forEach(removeBlock);
+  undoStack.length = 0;
+  buildStarter();
+});
+toolbar.appendChild(resetBtn);
+
+function selectTool(i){
+  currentTool = i;
+  toolBtns.forEach((el,j)=> el.classList.toggle('sel', j===i));
+  eraserBtn.classList.toggle('sel', i===-1);
+}
+
+/* ---------- タッチそうさ ---------- */
+const pointers = new Map();
+let downInfo = null;
+let pinchDist = 0, pinchMid = null;
+const el = renderer.domElement;
+
+el.addEventListener('pointerdown', e => {
+  ensureAudio();
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if (pointers.size === 1){
+    downInfo = { x:e.clientX, y:e.clientY, t:performance.now(), moved:0 };
+  } else if (pointers.size === 2){
+    downInfo = null;
+    const [a,b] = [...pointers.values()];
+    pinchDist = Math.hypot(a.x-b.x, a.y-b.y);
+    pinchMid = { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+  }
+});
+el.addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId);
+  if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+
+  if (pointers.size === 1){
+    if (downInfo) downInfo.moved += Math.abs(dx) + Math.abs(dy);
+    camTheta -= dx * 0.006;
+    camPhi   -= dy * 0.006;
+    updateCamera();
+  } else if (pointers.size === 2){
+    const [a,b] = [...pointers.values()];
+    const d = Math.hypot(a.x-b.x, a.y-b.y);
+    const mid = { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+    if (d > 0) camRadius *= pinchDist / d;
+    // 2ほんゆびドラッグで いどう
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+    right.y = 0; right.normalize();
+    const fwd = new THREE.Vector3().crossVectors(camera.up, right).normalize();
+    const k = camRadius * 0.0022;
+    camTarget.addScaledVector(right, -(mid.x - pinchMid.x) * k);
+    camTarget.addScaledVector(fwd, (mid.y - pinchMid.y) * k);
+    camTarget.x = Math.max(-LIMIT, Math.min(LIMIT, camTarget.x));
+    camTarget.z = Math.max(-LIMIT, Math.min(LIMIT, camTarget.z));
+    pinchDist = d; pinchMid = mid;
+    updateCamera();
+  }
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (downInfo && pointers.size === 0){
+    const dt = performance.now() - downInfo.t;
+    if (downInfo.moved < 12 && dt < 500) handleTap(e.clientX, e.clientY);
+    downInfo = null;
+  }
+}
+el.addEventListener('pointerup', endPointer);
+el.addEventListener('pointercancel', endPointer);
+el.addEventListener('wheel', e => { camRadius *= (1 + e.deltaY*0.001); updateCamera(); }, { passive:true });
+
+/* ---------- タップでおく / けす ---------- */
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+function handleTap(cx, cy){
+  ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1);
+  raycaster.setFromCamera(ndc, camera);
+
+  // ユニコーンをタップしたらジャンプ！
+  const uniHit = raycaster.intersectObjects(unicorn.children, false);
+  if (uniHit.length){
+    uniJump = 1;
+    unicornSound();
+    sparkle(unicorn.position.clone().add(new THREE.Vector3(0,2,0)), 14);
+    return;
+  }
+
+  const hits = raycaster.intersectObjects([...blockGroup.children, ground], false);
+  if (!hits.length) return;
+  const hit = hits[0];
+
+  if (currentTool === -1){
+    if (hit.object === ground) return;
+    const k = hit.object.userData.key;
+    const type = removeBlock(k);
+    if (type !== null){
+      undoStack.push({ action:'remove', k, type });
+      if (undoStack.length > 200) undoStack.shift();
+      eraseSound();
+      sparkle(hit.object.position, 6);
+      scheduleSave();
+    }
+    return;
+  }
+
+  let x, y, z;
+  if (hit.object === ground){
+    x = Math.floor(hit.point.x); y = 0; z = Math.floor(hit.point.z);
+  } else {
+    const p = hit.object.position; // ブロックのちゅうしん
+    const n = hit.face.normal;
+    x = Math.round(p.x - 0.5 + n.x);
+    y = Math.round(p.y - 0.5 + n.y);
+    z = Math.round(p.z - 0.5 + n.z);
+  }
+  if (addBlock(x, y, z, currentTool)){
+    undoStack.push({ action:'place', k:key(x,y,z) });
+    if (undoStack.length > 200) undoStack.shift();
+    popSound();
+    sparkle(new THREE.Vector3(x+0.5, y+1, z+0.5), 6);
+    scheduleSave();
+  }
+}
+
+/* ---------- メインループ ---------- */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  // ユニコーンのおさんぽ
+  const toT = uniTarget.clone().sub(unicorn.position); toT.y = 0;
+  if (toT.length() < 0.5){
+    uniTarget.set((Math.random()-0.5)*30, 0, (Math.random()-0.5)*30);
+  } else {
+    toT.normalize();
+    unicorn.position.addScaledVector(toT, dt * 1.4);
+    const targetRot = Math.atan2(toT.x, toT.z) - Math.PI/2;
+    let dr = targetRot - unicorn.rotation.y;
+    while (dr > Math.PI) dr -= Math.PI*2;
+    while (dr < -Math.PI) dr += Math.PI*2;
+    unicorn.rotation.y += dr * Math.min(1, dt*4);
+  }
+  let bob = Math.abs(Math.sin(t*7)) * 0.12;
+  if (uniJump > 0){
+    uniJump = Math.max(0, uniJump - dt*1.6);
+    bob += Math.sin((1-uniJump) * Math.PI) * 1.6;
+  }
+  unicorn.position.y = bob;
+
+  // くも
+  clouds.forEach((cl,i)=>{
+    cl.position.x += dt * (0.4 + i*0.12);
+    if (cl.position.x > 55) cl.position.x = -55;
+  });
+
+  // ブロックのぽよん
+  for(let i=popAnims.length-1;i>=0;i--){
+    const a = popAnims[i];
+    a.t += dt*4;
+    if (a.t >= 1){ a.mesh.scale.setScalar(1); popAnims.splice(i,1); continue; }
+    const s = 0.1 + (1 - Math.pow(1-a.t, 3)) * 0.9 + Math.sin(a.t*Math.PI)*0.12;
+    a.mesh.scale.setScalar(Math.min(s, 1.15));
+  }
+
+  // キラキラ
+  for(let i=sparks.length-1;i>=0;i--){
+    const s = sparks[i];
+    s.userData.life -= dt;
+    if (s.userData.life <= 0){ scene.remove(s); s.material.dispose(); sparks.splice(i,1); continue; }
+    s.position.addScaledVector(s.userData.vel, dt);
+    s.userData.vel.y -= dt * 4;
+    s.material.opacity = s.userData.life / 0.7;
+    s.material.rotation += dt * 5;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ヒントをしばらくしたら消す */
+setTimeout(()=>{ document.getElementById('hint').style.opacity = 0; }, 8000);
+</script>
+</body>
+</html>
