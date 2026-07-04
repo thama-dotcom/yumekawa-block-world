@@ -99,8 +99,8 @@ addEventListener('resize', () => {
 });
 
 /* ---------- カメラ（オービット） ---------- */
-let camTheta = 0, camPhi = 1.1, camRadius = 23;
-const camTarget = new THREE.Vector3(0, 1.5, 0);
+let camTheta = 0, camPhi = 1.15, camRadius = 34;
+const camTarget = new THREE.Vector3(0, 3.5, -2);
 function updateCamera(){
   camPhi = Math.max(0.2, Math.min(1.45, camPhi));
   camRadius = Math.max(6, Math.min(45, camRadius));
@@ -209,6 +209,17 @@ const BLOCKS = [
       g.beginPath(); g.arc(51,93,3,0,7); g.arc(79,93,3,0,7); g.fill();
       g.strokeStyle = '#4a3428'; g.lineWidth = 3;
       g.beginPath(); g.arc(64,100,8,0.3,Math.PI-0.3); g.stroke();
+    })},
+  { name:'いちごミルク', emoji:'🍓', tex: makeTex(g => {
+      g.fillStyle = '#ffc9de'; g.fillRect(0,0,128,128);
+      g.fillStyle = 'rgba(255,255,255,.5)';
+      for(let i=0;i<8;i++){
+        g.beginPath();
+        g.arc(Math.random()*128, Math.random()*128, 2+Math.random()*3, 0, 7);
+        g.fill();
+      }
+      drawHeart(g, 36, 36, 11, 'rgba(255,255,255,.85)');
+      drawHeart(g, 92, 88, 11, 'rgba(255,255,255,.85)');
     })},
 ];
 const blockMats = BLOCKS.map(b => new THREE.MeshLambertMaterial({ map:b.tex }));
@@ -455,14 +466,14 @@ function scheduleSave(){
       Math.round(an.group.position.x*10)/10,
       Math.round(an.group.position.z*10)/10
     ]);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:3, b, a })); } catch(e){}
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:4, b, a })); } catch(e){}
   }, 400);
 }
 function loadWorld(){
   let data = null;
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e){}
   if (data && Array.isArray(data.b)){
-    if (data.v === 3){
+    if (data.v === 4){
       data.b.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
     } else {
       buildMap(); // あたらしいマップに おひっこし（どうぶつは連れていく）
@@ -497,42 +508,78 @@ function iceCreamScoop(cx, cz, base){
     if (Math.abs(x)+Math.abs(z) < 2) addBlock(cx+x,2,cz+z, 0, true);
   addBlock(cx,3,cz,4,true); // さくらんぼハート
 }
-function buildMap(){
-  /* ===== おかしのおしろ（きた） ===== */
-  // 4本のとう（2x2 たかさ5、てっぺんはハート＆ほし）
-  [[-6,-16],[5,-16],[-6,-9],[5,-9]].forEach(([tx,tz])=>{
-    for(let dx=0;dx<2;dx++) for(let dz=0;dz<2;dz++)
-      for(let y=0;y<5;y++) addBlock(tx+dx, y, tz+dz, y===4 ? 4 : 0, true);
-    addBlock(tx,5,tz,6,true); addBlock(tx+1,5,tz+1,6,true);
-  });
-  // まえのかべ（もんつき）
-  for(let x=-4;x<=3;x++){
-    for(let y=0;y<3;y++){
-      if ((x===-1||x===0) && y<2) continue; // おしろのもん
-      addBlock(x,y,-9, 0, true);
+function buildCakeCastle(cx, cz){
+  const CAKE=0, CANDY=2, SODA=3, HEART=4, RAIN=5, STAR=6, PINK=8;
+  const in13 = (dx,dz)=> Math.abs(dx)<=6 && Math.abs(dz)<=6 && Math.abs(dx)+Math.abs(dz)<=9;
+  const in9  = (dx,dz)=> Math.abs(dx)<=4 && Math.abs(dz)<=4 && Math.abs(dx)+Math.abs(dz)<=6;
+
+  /* ケーキのどだい（2だんの まるいケーキ） */
+  for(let dx=-6;dx<=6;dx++) for(let dz=-6;dz<=6;dz++){
+    if (!in13(dx,dz)) continue;
+    const edge13 = !(in13(dx+1,dz) && in13(dx-1,dz) && in13(dx,dz+1) && in13(dx,dz-1));
+    if (edge13){
+      addBlock(cx+dx,0,cz+dz,CAKE,true);
+      addBlock(cx+dx,1,cz+dz,CAKE,true);
+      if ((dx+dz+13)%3===0) addBlock(cx+dx,3,cz+dz,HEART,true); // いちごのかざり
     }
-    if (x%2===0) addBlock(x,3,-9, 4, true); // ハートのかざり
+    if (!in9(dx,dz)) addBlock(cx+dx,2,cz+dz,CAKE,true); // 1だんめのうえ
+    if (in9(dx,dz)){
+      const edge9 = !(in9(dx+1,dz) && in9(dx-1,dz) && in9(dx,dz+1) && in9(dx,dz-1));
+      if (edge9) addBlock(cx+dx,3,cz+dz,CAKE,true);
+      addBlock(cx+dx,4,cz+dz,CAKE,true); // 2だんめのうえ（おしろのゆか）
+    }
   }
-  // うしろのかべ
-  for(let x=-4;x<=3;x++){
-    for(let y=0;y<3;y++) addBlock(x,y,-16, 0, true);
-    if (x%2===0) addBlock(x,3,-16, 4, true);
+
+  /* そとがわのかべ＆とう（いちごミルクいろ） */
+  for(let dx=-4;dx<=4;dx++) for(let dz=-4;dz<=4;dz++){
+    if (!in9(dx,dz)) continue;
+    const edge9 = !(in9(dx+1,dz) && in9(dx-1,dz) && in9(dx,dz+1) && in9(dx,dz-1));
+    if (!edge9) continue;
+    const corner = Math.abs(dx)===3 && Math.abs(dz)===3;
+    const gate = (dx===0 || dx===-1) && dz===4;
+    for(let y=5;y<=7;y++){
+      if (gate && y<7) continue;                    // おしろのもん
+      let t = PINK;
+      if (y===6 && (Math.abs(dx)===4 && dz===0 || dx===0 && dz===-4)) t = SODA; // まど
+      addBlock(cx+dx,y,cz+dz,t,true);
+    }
+    if (corner){                                    // 4すみのとう＋やね
+      for(let y=8;y<=10;y++) addBlock(cx+dx,y,cz+dz,PINK,true);
+      addBlock(cx+dx,11,cz+dz,CANDY,true);
+      addBlock(cx+dx,12,cz+dz,STAR,true);
+    } else if (!gate && (dx+dz+9)%2===0){
+      addBlock(cx+dx,8,cz+dz,HEART,true);           // ハートのかざりかべ
+    }
   }
-  // よこのかべ
-  for(let z=-14;z<=-11;z++) for(let y=0;y<3;y++){
-    addBlock(-6,y,z,0,true); addBlock(6,y,z,0,true);
+
+  /* ちゅうおうのキープ（5x5 たかさ5＋やね＋スパイア） */
+  for(let dx=-2;dx<=2;dx++) for(let dz=-2;dz<=2;dz++){
+    if (Math.max(Math.abs(dx),Math.abs(dz)) !== 2) continue;
+    for(let y=5;y<=9;y++){
+      let t = CAKE;
+      if (y===7 && (dx===0 || dz===0)) t = SODA;    // まど
+      addBlock(cx+dx,y,cz+dz,t,true);
+    }
   }
-  // ちゅうおうのキープ（キャンディやね＋ほし）
-  for(let x=-1;x<=1;x++) for(let z=-14;z<=-12;z++){
-    for(let y=0;y<5;y++) addBlock(x,y,z, 0, true);
-    addBlock(x,5,z, 2, true);
-  }
-  addBlock(0,6,-13,6,true);
-  // おしろのなかのにわ（レインボーとハート）
-  [[-3,-11],[2,-11],[-3,-13],[2,-13]].forEach(([x,z])=> addBlock(x,0,z,4,true));
+  for(let dx=-1;dx<=1;dx++) for(let dz=-1;dz<=1;dz++) addBlock(cx+dx,10,cz+dz,CANDY,true);
+  addBlock(cx,11,cz,CANDY,true);
+  addBlock(cx,12,cz,PINK,true); addBlock(cx,13,cz,PINK,true);
+  addBlock(cx,14,cz,CANDY,true);
+  addBlock(cx,15,cz,HEART,true);                    // てっぺんのハート
+
+  /* にじのだいかいだん（みなみがわ） */
+  [-1,0].forEach(x=>{
+    addBlock(cx+x,0,cz+8,RAIN,true);
+    addBlock(cx+x,0,cz+7,RAIN,true); addBlock(cx+x,1,cz+7,RAIN,true);
+    addBlock(cx+x,3,cz+5,RAIN,true);
+  });
+}
+function buildMap(){
+  /* ===== ケーキキャッスル（きた） ===== */
+  buildCakeCastle(0, -13);
 
   /* ===== にじのみち（おしろから みなみへ） ===== */
-  for(let z=-8; z<=10; z++){ addBlock(-1,0,z,5,true); addBlock(0,0,z,5,true); }
+  for(let z=-4; z<=10; z++){ addBlock(-1,0,z,5,true); addBlock(0,0,z,5,true); }
 
   /* ===== カラフルこうえん（ひがし） ===== */
   // にじのアーチ
