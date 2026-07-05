@@ -40,6 +40,25 @@
     box-shadow:0 2px 8px rgba(255,120,190,.3); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
   }
+  #joy {
+    position:absolute; left:18px; bottom:calc(env(safe-area-inset-bottom) + 108px);
+    width:112px; height:112px; border-radius:50%;
+    background:rgba(255,255,255,.3); border:3px solid rgba(255,255,255,.7);
+    z-index:9; touch-action:none;
+  }
+  #joyKnob {
+    position:absolute; left:50%; top:50%; width:48px; height:48px; border-radius:50%;
+    background:rgba(255,255,255,.9); box-shadow:0 2px 8px rgba(255,120,190,.4);
+    transform:translate(-50%,-50%); pointer-events:none;
+  }
+  #jumpBtn {
+    position:absolute; right:18px; bottom:calc(env(safe-area-inset-bottom) + 116px);
+    width:66px; height:66px; border-radius:50%; border:3px solid #fff;
+    background:rgba(255,255,255,.55); font-size:30px; z-index:9;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 3px 10px rgba(255,120,190,.35); touch-action:none;
+  }
+  #jumpBtn:active { background:rgba(255,240,248,.9); }
   #toolbar {
     position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); left:0; right:0;
     display:flex; gap:8px; padding:10px 12px 6px; overflow-x:auto; z-index:10;
@@ -68,9 +87,11 @@
 <body>
 <div id="game"></div>
 <div id="title">🦄 ゆめかわブロックワールド 🍰</div>
-<div id="hint">🥚たまごから どうぶつが うまれるよ！</div>
+<div id="hint">スティックであるいて 🦘でジャンプ！</div>
 <div id="toast"></div>
 <button id="bgmBtn">🎵</button>
+<div id="joy"><div id="joyKnob"></div></div>
+<button id="jumpBtn">🦘</button>
 <div id="toolbar"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -99,11 +120,11 @@ addEventListener('resize', () => {
 });
 
 /* ---------- カメラ（オービット） ---------- */
-let camTheta = 0, camPhi = 1.15, camRadius = 36;
+let camTheta = 0, camPhi = 1.15, camRadius = 9;
 const camTarget = new THREE.Vector3(0, 5, -2);
 function updateCamera(){
   camPhi = Math.max(0.2, Math.min(1.45, camPhi));
-  camRadius = Math.max(6, Math.min(70, camRadius));
+  camRadius = Math.max(2.5, Math.min(45, camRadius));
   camera.position.set(
     camTarget.x + camRadius * Math.sin(camPhi) * Math.sin(camTheta),
     camTarget.y + camRadius * Math.cos(camPhi),
@@ -678,6 +699,183 @@ function spawnAnimal(sIdx, colorIdx, x, z, silent){
   return a;
 }
 
+/* ---------- しゅじんこう（かわいいおんなのこ） ---------- */
+function makePlayer(){
+  const g = new THREE.Group();
+  const skin = 0xffe3d3, hair = 0xff9ec7, dress = 0xff7fb5, dress2 = 0xffc9e2;
+  const mk = (w,h,d,color,x,y,z)=>{
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshLambertMaterial({ color }));
+    m.position.set(x,y,z); g.add(m); return m;
+  };
+  const mkLimb = (w,h,d,color,x,y,z)=>{ // ピボットつき（ふりこアニメ用）
+    const p = new THREE.Group(); p.position.set(x,y,z);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshLambertMaterial({ color }));
+    m.position.y = -h/2; p.add(m); g.add(p); return p;
+  };
+  mk(0.5,0.42,0.32, dress, 0,0.66,0);            // うわぎ
+  mk(0.62,0.24,0.44, dress2, 0,0.4,0);           // スカート
+  mk(0.72,0.72,0.72, skin, 0,1.22,0);            // かお
+  mk(0.78,0.26,0.78, hair, 0,1.52,0);            // かみ（うえ）
+  mk(0.2,0.7,0.78, hair, -0.3,1.2,0);            // かみ（うしろ）
+  mk(0.1,0.2,0.78, hair, 0.34,1.48,0);           // まえがみ
+  [-1,1].forEach(s=>{
+    mk(0.16,0.62,0.16, hair, -0.05,1.05,s*0.5);  // ツインテール
+    mk(0.12,0.12,0.2, 0xffd94d, -0.05,1.4,s*0.48); // リボン
+    mk(0.07,0.13,0.07, 0x53455e, 0.365,1.26,s*0.16); // め
+    mk(0.05,0.07,0.09, 0xffb3c7, 0.365,1.08,s*0.27); // ほっぺ
+  });
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.15,0.24,5),
+    new THREE.MeshLambertMaterial({ color:0xffd94d }));
+  crown.position.set(0,1.78,0); g.add(crown);    // ミニかんむり
+  const armL = mkLimb(0.15,0.42,0.15, dress, 0, 0.86, 0.34);
+  const armR = mkLimb(0.15,0.42,0.15, dress, 0, 0.86, -0.34);
+  const legL = mkLimb(0.17,0.4,0.17, skin, 0, 0.4, 0.13);
+  const legR = mkLimb(0.17,0.4,0.17, skin, 0, 0.4, -0.13);
+  scene.add(g);
+  return { group:g, armL, armR, legL, legR };
+}
+const playerParts = makePlayer();
+const player = {
+  pos: new THREE.Vector3(0.5, 3, 6.5),
+  vel: new THREE.Vector3(),
+  onGround: false, walk: 0,
+};
+player.pos.y = groundLevelAt(0.5, 6.5);
+
+function isSolidCell(X, Y, Z){
+  const b = world.get(key(X, Y, Z));
+  return b !== undefined && b.type !== B_WATER;
+}
+function boxHits(px, py, pz){
+  if (py < 0.001) return true; // いちばんそこ
+  const x0 = Math.floor(px-0.3), x1 = Math.floor(px+0.3);
+  const y0 = Math.floor(py+0.02), y1 = Math.floor(py+1.32);
+  const z0 = Math.floor(pz-0.3), z1 = Math.floor(pz+0.3);
+  for(let X=x0;X<=x1;X++) for(let Y=y0;Y<=y1;Y++) for(let Z=z0;Z<=z1;Z++)
+    if (isSolidCell(X,Y,Z)) return true;
+  return false;
+}
+function playerInWater(){
+  const b = world.get(key(Math.floor(player.pos.x), Math.floor(player.pos.y+0.4), Math.floor(player.pos.z)));
+  return b !== undefined && b.type === B_WATER;
+}
+function moveAxis(ax, d, canAutoJump){
+  if (!d) return;
+  const p = player.pos;
+  const steps = Math.max(1, Math.ceil(Math.abs(d)/0.08));
+  const sd = d/steps;
+  for(let i=0;i<steps;i++){
+    p[ax] += sd;
+    if (boxHits(p.x, p.y, p.z)){
+      p[ax] -= sd;
+      if (ax === 'y'){
+        if (d < 0) player.onGround = true;
+        player.vel.y = 0;
+      } else {
+        // オートジャンプ（1ブロックのだんさ）
+        if (canAutoJump && player.onGround && !boxHits(p.x, p.y+1.05, p.z)){
+          player.vel.y = 7.4;
+        }
+        player.vel[ax] = 0;
+      }
+      break;
+    }
+  }
+}
+function tryJump(){
+  ensureAudio();
+  if (playerInWater()){ player.vel.y = 3.4; }
+  else if (player.onGround){ player.vel.y = 8.4; note(659, 0.1, 0.12); }
+}
+
+/* ジョイスティック */
+const joyEl = document.getElementById('joy');
+const joyKnob = document.getElementById('joyKnob');
+const joy = { id:null, x:0, y:0, cx:0, cy:0 };
+joyEl.addEventListener('pointerdown', e => {
+  ensureAudio();
+  const r = joyEl.getBoundingClientRect();
+  joy.id = e.pointerId; joy.cx = r.left + r.width/2; joy.cy = r.top + r.height/2;
+  joyEl.setPointerCapture(e.pointerId);
+  joyMove(e);
+});
+joyEl.addEventListener('pointermove', e => { if (e.pointerId === joy.id) joyMove(e); });
+function joyMove(e){
+  let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy;
+  const d = Math.hypot(dx, dy), max = 42;
+  if (d > max){ dx = dx/d*max; dy = dy/d*max; }
+  joy.x = dx/max; joy.y = dy/max;
+  joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+function joyEnd(e){
+  if (e.pointerId !== joy.id) return;
+  joy.id = null; joy.x = 0; joy.y = 0;
+  joyKnob.style.transform = 'translate(-50%,-50%)';
+}
+joyEl.addEventListener('pointerup', joyEnd);
+joyEl.addEventListener('pointercancel', joyEnd);
+
+document.getElementById('jumpBtn').addEventListener('pointerdown', e => { e.preventDefault(); tryJump(); });
+
+/* キーボード（PCでもあそべる） */
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space'){ e.preventDefault(); tryJump(); }
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+function updatePlayer(dt){
+  // にゅうりょく（ジョイスティック＋WASD）
+  let ix = joy.x + ((keys.KeyD||keys.ArrowRight)?1:0) - ((keys.KeyA||keys.ArrowLeft)?1:0);
+  let iz = joy.y + ((keys.KeyS||keys.ArrowDown)?1:0) - ((keys.KeyW||keys.ArrowUp)?1:0);
+  const il = Math.hypot(ix, iz);
+  if (il > 1){ ix /= il; iz /= il; }
+  // カメラのむきにあわせる
+  const fx = -Math.sin(camTheta), fz = -Math.cos(camTheta);
+  const mvx = fx*(-iz) + (-fz)*ix;
+  const mvz = fz*(-iz) + fx*ix;
+  const water = playerInWater();
+  const speed = water ? 2.6 : 4.3;
+  player.vel.x = mvx * speed;
+  player.vel.z = mvz * speed;
+  player.vel.y -= (water ? 5 : 22) * dt;
+  if (water) player.vel.y = Math.max(player.vel.y, -1.6);
+
+  const moving = il > 0.1;
+  moveAxis('x', player.vel.x*dt, moving);
+  moveAxis('z', player.vel.z*dt, moving);
+  player.onGround = false;
+  moveAxis('y', player.vel.y*dt, false);
+
+  // おっこちたらリスポーン
+  if (player.pos.y < -8){
+    player.pos.set(0.5, groundLevelAt(0.5, 6.5), 6.5);
+    player.vel.set(0,0,0);
+  }
+
+  // モデルこうしん
+  const g = playerParts.group;
+  g.position.copy(player.pos);
+  if (moving){
+    const targetYaw = Math.atan2(mvx, mvz) - Math.PI/2;
+    let dr = targetYaw - g.rotation.y;
+    while (dr > Math.PI) dr -= Math.PI*2;
+    while (dr < -Math.PI) dr += Math.PI*2;
+    g.rotation.y += dr * Math.min(1, dt*10);
+    player.walk += dt * 11;
+  }
+  const sw = moving ? Math.sin(player.walk)*0.65 : 0;
+  playerParts.legL.rotation.z = sw;
+  playerParts.legR.rotation.z = -sw;
+  playerParts.armL.rotation.z = -sw*0.8;
+  playerParts.armR.rotation.z = sw*0.8;
+
+  // カメラはしゅじんこうについていく
+  camTarget.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
+  updateCamera();
+}
+
 /* ---------- セーブ / ロード ---------- */
 const SAVE_KEY = 'yumekawa-world-v2';
 let saveTimer = null;
@@ -694,17 +892,25 @@ function scheduleSave(){
       Math.round(an.group.position.x*10)/10,
       Math.round(an.group.position.z*10)/10
     ]);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:7, b, a })); } catch(e){}
+    const p = [
+      Math.round(player.pos.x*10)/10,
+      Math.round(player.pos.y*10)/10,
+      Math.round(player.pos.z*10)/10
+    ];
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:8, b, a, p })); } catch(e){}
   }, 1000);
 }
 function loadWorld(){
   let data = null;
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e){}
   if (data && Array.isArray(data.b)){
-    if (data.v === 7){
+    if (data.v === 7 || data.v === 8){
       data.b.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
     } else {
       buildMap(); // あたらしいマップに おひっこし（どうぶつは連れていく）
+    }
+    if (Array.isArray(data.p)){
+      player.pos.set(data.p[0], data.p[1], data.p[2]);
     }
     (data.a||[]).forEach(([s,c,x,z]) => spawnAnimal(s,c,x,z,true));
     if (!animals.length) defaultAnimals();
@@ -1175,18 +1381,8 @@ cv.addEventListener('pointermove', e => {
   } else if (pointers.size === 2){
     const [a,b] = [...pointers.values()];
     const d = Math.hypot(a.x-b.x, a.y-b.y);
-    const mid = { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
     if (d > 0) camRadius *= pinchDist / d;
-    // 2ほんゆびドラッグで いどう
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
-    right.y = 0; right.normalize();
-    const fwd = new THREE.Vector3().crossVectors(camera.up, right).normalize();
-    const k = camRadius * 0.0022;
-    camTarget.addScaledVector(right, -(mid.x - pinchMid.x) * k);
-    camTarget.addScaledVector(fwd, (mid.y - pinchMid.y) * k);
-    camTarget.x = Math.max(-LIMIT, Math.min(LIMIT, camTarget.x));
-    camTarget.z = Math.max(-LIMIT, Math.min(LIMIT, camTarget.z));
-    pinchDist = d; pinchMid = mid;
+    pinchDist = d;
     updateCamera();
   }
 });
@@ -1251,6 +1447,7 @@ function handleTap(cx, cy){
 
   if (currentTool === -1){
     if (!hitKey) return;
+    if (Math.hypot(bx+0.5-player.pos.x, by+0.5-(player.pos.y+1), bz+0.5-player.pos.z) > 15) return;
     const type = removeBlock(hitKey);
     if (type !== null){
       undoStack.push({ action:'remove', k:hitKey, type });
@@ -1271,6 +1468,9 @@ function handleTap(cx, cy){
     y = by + Math.round(n.y);
     z = bz + Math.round(n.z);
   }
+
+  // とどくきょり（マイクラふうリーチ）
+  if (Math.hypot(x+0.5-player.pos.x, y+0.5-(player.pos.y+1), z+0.5-player.pos.z) > 15) return;
 
   if (currentTool === -2){
     if (Math.abs(x)>LIMIT || Math.abs(z)>LIMIT || y<0 || y>HMAX) return;
@@ -1341,6 +1541,7 @@ function animate(){
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  updatePlayer(dt);
   animals.forEach(a => updateAnimal(a, dt, t));
 
   // たまご
