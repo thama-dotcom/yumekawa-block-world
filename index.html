@@ -59,6 +59,18 @@
     box-shadow:0 3px 10px rgba(255,120,190,.35); touch-action:none;
   }
   #jumpBtn:active { background:rgba(255,240,248,.9); }
+  #runBtn {
+    position:absolute; right:26px; bottom:calc(env(safe-area-inset-bottom) + 196px);
+    width:54px; height:54px; border-radius:50%; border:3px solid #fff;
+    background:rgba(255,255,255,.55); font-size:24px; z-index:9;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 3px 10px rgba(255,120,190,.35); touch-action:none;
+  }
+  #runBtn.on {
+    background:#fff0f8; border-color:#ff7bbd;
+    box-shadow:0 0 16px rgba(255,120,190,.8);
+    transform:scale(1.1);
+  }
   #toolbar {
     position:absolute; bottom:calc(env(safe-area-inset-bottom) + 10px); left:0; right:0;
     display:flex; gap:8px; padding:10px 12px 6px; overflow-x:auto; z-index:10;
@@ -92,6 +104,7 @@
 <button id="bgmBtn">🎵</button>
 <div id="joy"><div id="joyKnob"></div></div>
 <button id="jumpBtn">🦘</button>
+<button id="runBtn">💨</button>
 <div id="toolbar"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -817,6 +830,16 @@ joyEl.addEventListener('pointercancel', joyEnd);
 
 document.getElementById('jumpBtn').addEventListener('pointerdown', e => { e.preventDefault(); tryJump(); });
 
+/* ダッシュ */
+let dashOn = false;
+const runBtn = document.getElementById('runBtn');
+runBtn.addEventListener('pointerdown', e => {
+  e.preventDefault(); ensureAudio();
+  dashOn = !dashOn;
+  runBtn.classList.toggle('on', dashOn);
+  note(dashOn ? 880 : 440, 0.1, 0.15);
+});
+
 /* キーボード（PCでもあそべる） */
 const keys = {};
 addEventListener('keydown', e => {
@@ -836,9 +859,14 @@ function updatePlayer(dt){
   const mvx = fx*(-iz) + (-fz)*ix;
   const mvz = fz*(-iz) + fx*ix;
   const water = playerInWater();
-  const speed = water ? 2.6 : 4.3;
+  const sprinting = !water && il > 0.1 && (dashOn || il > 0.97 || keys.ShiftLeft || keys.ShiftRight);
+  const speed = water ? 2.6 : (sprinting ? 7.2 : 4.3);
   player.vel.x = mvx * speed;
   player.vel.z = mvz * speed;
+  // ダッシュちゅうはキラキラのあしあと
+  if (sprinting && player.onGround && Math.random() < dt*7){
+    sparkle(new THREE.Vector3(player.pos.x, player.pos.y+0.25, player.pos.z), 1);
+  }
   player.vel.y -= (water ? 5 : 22) * dt;
   if (water) player.vel.y = Math.max(player.vel.y, -1.6);
 
@@ -863,7 +891,7 @@ function updatePlayer(dt){
     while (dr > Math.PI) dr -= Math.PI*2;
     while (dr < -Math.PI) dr += Math.PI*2;
     g.rotation.y += dr * Math.min(1, dt*10);
-    player.walk += dt * 11;
+    player.walk += dt * (player.vel.y === 0 && Math.hypot(player.vel.x, player.vel.z) > 5 ? 17 : 11);
   }
   const sw = moving ? Math.sin(player.walk)*0.65 : 0;
   playerParts.legL.rotation.z = sw;
@@ -890,7 +918,8 @@ function scheduleSave(){
     const a = animals.map(an => [
       an.sIdx, an.colorIdx,
       Math.round(an.group.position.x*10)/10,
-      Math.round(an.group.position.z*10)/10
+      Math.round(an.group.position.z*10)/10,
+      an.follow ? 1 : 0
     ]);
     const p = [
       Math.round(player.pos.x*10)/10,
@@ -912,7 +941,7 @@ function loadWorld(){
     if (Array.isArray(data.p)){
       player.pos.set(data.p[0], data.p[1], data.p[2]);
     }
-    (data.a||[]).forEach(([s,c,x,z]) => spawnAnimal(s,c,x,z,true));
+    (data.a||[]).forEach(([s,c,x,z,f]) => { const an = spawnAnimal(s,c,x,z,true); an.follow = !!f; });
     if (!animals.length) defaultAnimals();
     scheduleSave();
     return true;
@@ -1413,8 +1442,12 @@ function handleTap(cx, cy){
     const a = obj.userData.animal;
     if (a){
       a.jump = 1;
-      animalSound(SPECIES[a.sIdx].id);
+      a.follow = !a.follow;
+      const sp = SPECIES[a.sIdx];
+      animalSound(sp.id);
       sparkle(obj.position.clone().add(new THREE.Vector3(0,2,0)), 14);
+      showToast(a.follow ? `${sp.emoji}${sp.name}が ついてくるよ！` : `${sp.emoji}ここで まってるね`);
+      scheduleSave();
       return;
     }
   }
@@ -1488,10 +1521,35 @@ function handleTap(cx, cy){
 }
 
 /* ---------- どうぶつのおさんぽ ---------- */
+function turnToward(g, dirX, dirZ, dt, rate){
+  const targetRot = Math.atan2(dirX, dirZ) - Math.PI/2;
+  let dr = targetRot - g.rotation.y;
+  while (dr > Math.PI) dr -= Math.PI*2;
+  while (dr < -Math.PI) dr += Math.PI*2;
+  g.rotation.y += dr * Math.min(1, dt*rate);
+}
 function updateAnimal(a, dt, t){
   const g = a.group;
   let walking = false;
-  if (a.wait > 0){
+  if (a.follow){
+    // しゅじんこうに ついていく
+    const to = new THREE.Vector3(player.pos.x - g.position.x, 0, player.pos.z - g.position.z);
+    const d = to.length();
+    if (d > 18){
+      // はなれすぎたら ワープしてくる
+      g.position.x = player.pos.x + (Math.random()-0.5)*3;
+      g.position.z = player.pos.z + (Math.random()-0.5)*3;
+      a.gy = groundLevelAt(g.position.x, g.position.z);
+      sparkle(g.position.clone().add(new THREE.Vector3(0,1,0)), 8);
+    } else if (d > 2.2){
+      walking = true;
+      to.normalize();
+      g.position.addScaledVector(to, dt * a.speed * 1.9);
+      turnToward(g, to.x, to.z, dt, 6);
+    } else {
+      turnToward(g, to.x, to.z, dt, 3); // ちかくで こっちをみる
+    }
+  } else if (a.wait > 0){
     a.wait -= dt;
   } else {
     const to = a.target.clone().sub(g.position); to.y = 0;
@@ -1504,11 +1562,7 @@ function updateAnimal(a, dt, t){
       walking = true;
       to.normalize();
       g.position.addScaledVector(to, dt * a.speed);
-      const targetRot = Math.atan2(to.x, to.z) - Math.PI/2;
-      let dr = targetRot - g.rotation.y;
-      while (dr > Math.PI) dr -= Math.PI*2;
-      while (dr < -Math.PI) dr += Math.PI*2;
-      g.rotation.y += dr * Math.min(1, dt*4);
+      turnToward(g, to.x, to.z, dt, 4);
     }
   }
   // じめんのたかさに ついていく
@@ -1599,6 +1653,9 @@ bgmBtn.addEventListener('click', ()=>{
 
 /* ヒントをしばらくしたら消す */
 setTimeout(()=>{ document.getElementById('hint').style.opacity = 0; }, 8000);
+
+/* かいはつよう */
+window._dbg = { animals, player, world };
 </script>
 </body>
 </html>
