@@ -79,9 +79,9 @@
 
 /* ---------- 基本セットアップ ---------- */
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xffdff0, 55, 130);
+scene.fog = new THREE.Fog(0xffdff0, 70, 190);
 
-const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 300);
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 400);
 const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
@@ -99,11 +99,11 @@ addEventListener('resize', () => {
 });
 
 /* ---------- カメラ（オービット） ---------- */
-let camTheta = 0, camPhi = 1.15, camRadius = 34;
+let camTheta = 0, camPhi = 1.15, camRadius = 36;
 const camTarget = new THREE.Vector3(0, 5, -2);
 function updateCamera(){
   camPhi = Math.max(0.2, Math.min(1.45, camPhi));
-  camRadius = Math.max(6, Math.min(48, camRadius));
+  camRadius = Math.max(6, Math.min(70, camRadius));
   camera.position.set(
     camTarget.x + camRadius * Math.sin(camPhi) * Math.sin(camTheta),
     camTarget.y + camRadius * Math.cos(camPhi),
@@ -286,8 +286,11 @@ const blockMats = BLOCKS.map((b,i)=>{
 const blockGeo = new THREE.BoxGeometry(1,1,1);
 
 /* ---------- ブロックプール（InstancedMeshで高速描画） ---------- */
-const LIMIT = 26, HMAX = 20;
-const POOL_CAP = { [B_CHOCO]: 14000, [B_GRASS]: 6000, [B_SNOW]: 4000, [B_BISCUIT]: 4000, [B_WATER]: 3000 };
+const LIMIT = 48, HMAX = 24;
+const POOL_CAP = {
+  [B_CHOCO]: 36000, [B_GRASS]: 15000, [B_SNOW]: 8000, [B_BISCUIT]: 9000,
+  [B_WATER]: 7000, [B_CANDY]: 6000, [B_PINK]: 6000
+};
 const pools = BLOCKS.map((b,i)=>{
   const cap = POOL_CAP[i] || 3000;
   const mesh = new THREE.InstancedMesh(blockGeo, blockMats[i], cap);
@@ -373,9 +376,9 @@ function computeHeights(){
     let h = 1 + Math.round(n*3);          // なだらかなおか 1..4
     let surf = B_GRASS;
     // ゆきのくに（ほくせい）
-    if (inEllipse(x,z,-18,-13,9,7.5) < 1){ surf = B_SNOW; h = 2 + Math.round(n*3); }
+    if (inEllipse(x,z,-18,-13,11,9) < 1){ surf = B_SNOW; h = 2 + Math.round(n*3); }
     // さばく（にし）
-    else if (inEllipse(x,z,-19,6,9,6) < 1){ surf = B_BISCUIT; h = 1 + Math.round(n*2); }
+    else if (inEllipse(x,z,-21,6,11,7) < 1){ surf = B_BISCUIT; h = 1 + Math.round(n*2); }
     // チョコマウンテンさんみゃく（ほくとう）
     const md = inEllipse(x,z,18,-9,9,7);
     if (md < 1){
@@ -384,9 +387,27 @@ function computeHeights(){
       if (h >= 8) surf = B_SNOW;
       else if (h >= 5) surf = B_CHOCO;
     }
-    // たいらなひろば（おしろ・スタートちてん・こうえん）
+    // キャンディピーク（ひがしのはて）
+    const cd = inEllipse(x,z,39,-17,9,8);
+    if (cd < 1){
+      const b = 1 - Math.sqrt(cd);
+      h += Math.round(b*b*10 + n*2*b);
+      if (h >= 7) surf = B_CANDY;
+    }
+    // いちごかざん（ほくせいのはて）
+    const vd = inEllipse(x,z,-36,-28,11,10);
+    if (vd < 1){
+      const b = 1 - Math.sqrt(vd);
+      h += Math.round(b*b*13);
+      if (vd < 0.05){ h = Math.max(3, h - 7); surf = B_PINK; }      // かこう（いちごマグマ）
+      else if (vd < 0.13){ surf = B_PINK; }                          // ふちからあふれるいちご
+      else if (h >= 7){ surf = B_CHOCO; }
+    }
+    // たいらなひろば（おしろ・スタートちてん・こうえん・むら・ハートのおか）
     if (Math.abs(x) <= 9 && z >= -23 && z <= 13) h = 2;
     if (x >= 7 && x <= 19 && z >= -5 && z <= 12){ h = 2; surf = B_GRASS; }
+    if (x >= 25 && x <= 36 && z >= 12 && z <= 24){ h = 2; surf = B_GRASS; } // にじのむら
+    if (inEllipse(x,z,-30,25,7.5,6.5) < 1){ h = 4; surf = B_GRASS; }        // ハートのおか
     // アイスのやまだい＆ピラミッドだい（たいらに）
     if (inEllipse(x,z,-16.5,-15,6.5,4.5) < 1) h = 3;
     if (inEllipse(x,z,-19,3,4,3) < 1) h = 1;
@@ -394,8 +415,17 @@ function computeHeights(){
     const ld = inEllipse(x,z,11,18,9.5,6.5);
     if (ld < 1){ h = 0; surf = B_BISCUIT; waterCols.add(x+','+z); }
     else if (ld < 1.25){ h = Math.min(h, 1); surf = B_BISCUIT; }
+    // うみ（みなみのはて）
+    const seaLine = 36 + Math.sin(x/5) * 2.5;
+    if (z > seaLine){ h = 0; surf = B_BISCUIT; waterCols.add(x+','+z); }
+    else if (z > seaLine - 3){ h = Math.min(h, 1); surf = B_BISCUIT; } // すなはま
+    // うみにうかぶしま
+    if (inEllipse(x,z,10,42,4.5,3.2) < 1){
+      h = 2; surf = B_BISCUIT; waterCols.delete(x+','+z);
+    }
     // にじのみち
     if ((x===-1 || x===0) && z >= -5 && z <= 13) surf = B_RAINBOW;
+    if (z === 15 && x >= 19 && x <= 28) surf = B_RAINBOW; // むらへのみち
     hmap.set(x+','+z, h);
     smap.set(x+','+z, surf);
   }
@@ -431,7 +461,7 @@ for(let i=0;i<260;i++){
 const groundTex = new THREE.CanvasTexture(gCanvas);
 groundTex.colorSpace = THREE.SRGBColorSpace;
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(120, 120),
+  new THREE.PlaneGeometry(220, 220),
   new THREE.MeshLambertMaterial({ map: groundTex })
 );
 ground.rotation.x = -Math.PI/2;
@@ -447,13 +477,14 @@ const rainbow = new THREE.Group();
   );
   rainbow.add(arc);
 });
-rainbow.position.set(0, 0, -70);
+rainbow.position.set(0, 0, -100);
+rainbow.scale.setScalar(1.9);
 scene.add(rainbow);
 
 /* ---------- くも ---------- */
 const clouds = [];
 const cloudMat = new THREE.MeshBasicMaterial({ color:0xffffff });
-for(let i=0;i<5;i++){
+for(let i=0;i<9;i++){
   const cl = new THREE.Group();
   const n = 3 + (Math.random()*3|0);
   for(let j=0;j<n;j++){
@@ -461,7 +492,7 @@ for(let i=0;i<5;i++){
     s.position.set(j*1.6 - n*0.8, Math.random()*0.5, Math.random()*1.2);
     cl.add(s);
   }
-  cl.position.set(Math.random()*80-40, 18+Math.random()*8, Math.random()*80-40);
+  cl.position.set(Math.random()*160-80, 20+Math.random()*10, Math.random()*160-80);
   scene.add(cl); clouds.push(cl);
 }
 
@@ -663,14 +694,14 @@ function scheduleSave(){
       Math.round(an.group.position.x*10)/10,
       Math.round(an.group.position.z*10)/10
     ]);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:6, b, a })); } catch(e){}
-  }, 400);
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v:7, b, a })); } catch(e){}
+  }, 1000);
 }
 function loadWorld(){
   let data = null;
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e){}
   if (data && Array.isArray(data.b)){
-    if (data.v === 6){
+    if (data.v === 7){
       data.b.forEach(([x,y,z,t]) => addBlock(x,y,z,t,true));
     } else {
       buildMap(); // あたらしいマップに おひっこし（どうぶつは連れていく）
@@ -703,6 +734,19 @@ function placeOnLake(x, z, type){
   const w = world.get(k);
   if (w && w.type === B_WATER){ removeBlock(k); addBlock(x,1,z,type,true); }
   else addBlock(x, topAt(x,z), z, type, true);
+}
+function miniHouse(cx, cz, wallType, roofType){
+  const b = topAt(cx, cz);
+  for(let dx=-1;dx<=1;dx++) for(let dz=-1;dz<=1;dz++){
+    if (dx===0 && dz===0) continue;
+    for(let y=0;y<2;y++){
+      if (dx===0 && dz===1) continue; // ドア（みなみむき）
+      addBlock(cx+dx, b+y, cz+dz, wallType, true);
+    }
+  }
+  for(let dx=-1;dx<=1;dx++) for(let dz=-1;dz<=1;dz++)
+    addBlock(cx+dx, b+2, cz+dz, roofType, true);
+  addBlock(cx, b+3, cz, B_STAR, true);
 }
 function buildCakeCastle(cx, cz, B){
   const in13 = (dx,dz)=> Math.abs(dx)<=6 && Math.abs(dz)<=6 && Math.abs(dx)+Math.abs(dz)<=9;
@@ -826,9 +870,47 @@ function buildMap(){
   [[9,16],[13,16],[11,20],[15,19],[8,20]].forEach(([x,z])=> placeOnLake(x,z,B_HEART)); // うきハート
   for(let z=14;z<=16;z++){ placeOnLake(5,z,B_CHOCO); placeOnLake(6,z,B_CHOCO); } // チョコのさんばし
 
+  /* ===== にじのむら（ひがし） ===== */
+  miniHouse(28, 15, B_PINK, B_CANDY);
+  miniHouse(33, 16, B_SODA, B_CAKE);
+  miniHouse(29, 21, B_MELON, B_CANDY);
+  miniHouse(34, 21, B_CAKE, B_CHOCO);
+  // むらのひろばのはなだん
+  addBlock(31, topAt(31,18), 18, B_STAR, true);
+  [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dz])=>
+    addBlock(31+dx, topAt(31+dx,18+dz), 18+dz, B_HEART, true));
+
+  /* ===== ハートのおか（なんせい とおく） ===== */
+  {
+    const HEART_CELLS = [
+      [-2,-2],[-1,-2],[1,-2],[2,-2],
+      [-3,-1],[-2,-1],[-1,-1],[0,-1],[1,-1],[2,-1],[3,-1],
+      [-3,0],[-2,0],[-1,0],[0,0],[1,0],[2,0],[3,0],
+      [-2,1],[-1,1],[0,1],[1,1],[2,1],
+      [-1,2],[0,2],[1,2],
+      [0,3]
+    ];
+    HEART_CELLS.forEach(([dx,dz])=>
+      addBlock(-30+dx, topAt(-30+dx, 25+dz), 25+dz, B_HEART, true));
+  }
+
+  /* ===== うみのしま（たからじま） ===== */
+  candyTree(9, 42, B_CANDY);
+  candyTree(12, 41, B_HEART);
+  addBlock(10, topAt(10,43), 43, B_STAR, true);  // たから
+  addBlock(11, topAt(11,43), 43, B_POOP, true);  // ...とうんち
+
+  /* ===== キャンディピークのてっぺん ===== */
+  addBlock(39, topAt(39,-17), -17, B_STAR, true);
+
   /* ===== ちらばったおかし ===== */
-  [[3,3],[-3,4],[2,-3],[-4,-2],[6,7]].forEach(([x,z])=> addBlock(x, topAt(x,z), z, B_HEART, true));
-  [[5,-5],[-6,5]].forEach(([x,z])=> addBlock(x, topAt(x,z), z, B_STAR, true));
+  [[3,3],[-3,4],[2,-3],[-4,-2],[6,7],[22,8],[-28,12],[25,-25],[-8,32],[18,28]]
+    .forEach(([x,z])=> addBlock(x, topAt(x,z), z, B_HEART, true));
+  [[5,-5],[-6,5],[30,5],[-32,-8],[-12,35]]
+    .forEach(([x,z])=> addBlock(x, topAt(x,z), z, B_STAR, true));
+  // そうげんのキャンディツリー
+  candyTree(-27, 14, B_CANDY); candyTree(24, 25, B_HEART);
+  candyTree(-38, 8, B_CANDY); candyTree(-25, 36, B_HEART); candyTree(20, -30, B_CANDY);
 }
 function defaultAnimals(){
   spawnAnimal(2, 0, 3, 6, true);   // ユニコーン
@@ -1215,9 +1297,9 @@ function updateAnimal(a, dt, t){
     const to = a.target.clone().sub(g.position); to.y = 0;
     if (to.length() < 0.4){
       a.wait = 0.5 + Math.random()*2.5;
-      a.target.set((Math.random()-0.5)*44, 0, (Math.random()-0.5)*44);
-      a.target.x = Math.max(-23, Math.min(23, a.target.x));
-      a.target.z = Math.max(-23, Math.min(23, a.target.z));
+      a.target.set((Math.random()-0.5)*90, 0, (Math.random()-0.5)*90);
+      a.target.x = Math.max(-45, Math.min(45, a.target.x));
+      a.target.z = Math.max(-45, Math.min(45, a.target.z));
     } else {
       walking = true;
       to.normalize();
